@@ -20,10 +20,10 @@ import { ChatPage } from '@/pages/ChatPage';
 import { CallHistoryPage } from '@/pages/CallHistoryPage';
 import { ConnectionsPage } from '@/pages/ConnectionsPage';
 import { SocialPage } from '@/pages/SocialPage';
-import { WhatsAppButton } from '@/components/WhatsAppButton';
+import { ContactUsButton, ContactUsPage } from '@/components/ContactUsButton';
 import { MobileApp } from '@/mobile/MobileApp';
 
-const MOBILE_PATHS = ['/m', '/pending-approval'];
+const MOBILE_PATHS = ['/m', '/pending-approval', '/contact'];
 
 function isNativeApp(): boolean {
   return typeof window !== 'undefined'
@@ -145,8 +145,9 @@ function App() {
             {/* Mobile app routes — separate from existing website */}
             <Route path="/m" element={<MobileApp />} />
             <Route path="/m/*" element={<MobileApp />} />
+            <Route path="/contact" element={<ContactUsPage />} />
           </Routes>
-          <WhatsAppButton />
+          <ContactUsButton />
         </BrowserRouter>
       </ToastProvider>
       </CallProvider>

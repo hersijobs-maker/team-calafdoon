@@ -3,7 +3,7 @@ import { useAuth } from '@/lib/auth-context';
 import { supabase } from '@/lib/supabase';
 import { useLanguage } from '@/lib/language-context';
 import { LANGUAGES, type Language } from '@/lib/translations';
-import { Users, User, LogOut, Shield, LayoutDashboard, Heart, MessageCircle, Phone, UserCheck, Camera, Globe, Check, Menu as MenuIcon } from 'lucide-react';
+import { Users, User, LogOut, Shield, LayoutDashboard, Heart, MessageCircle, Phone, UserCheck, Camera, Globe, Check, Menu as MenuIcon, Mail } from 'lucide-react';
 import { useState, useEffect, useRef } from 'react';
 
 export function Navbar() {
@@ -185,6 +185,7 @@ export function Navbar() {
         { to: '/chat', label: t('nav.chat'), icon: MessageCircle },
         { to: '/call-history', label: t('nav.callHistory'), icon: Phone },
         { to: '/profile', label: t('nav.profile'), icon: User },
+        { to: '/contact', label: 'Nala Soo Xiriir', icon: Mail },
       ];
 
   return (

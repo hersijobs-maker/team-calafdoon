@@ -5,7 +5,7 @@ import { useAuth } from '@/lib/auth-context';
 import { useLanguage } from '@/lib/language-context';
 import {
   Home as HomeIcon, Search, MessageCircle, Bell, User,
-  Loader2, Heart,
+  Loader2, Heart, Mail,
 } from 'lucide-react';
 import { MobileHome } from '@/mobile/MobileHome';
 import { MobileSearch } from '@/mobile/MobileSearch';
@@ -13,8 +13,9 @@ import { MobileMessages } from '@/mobile/MobileMessages';
 import { MobileNotifications } from '@/mobile/MobileNotifications';
 import { MobileProfile } from '@/mobile/MobileProfile';
 import { MobileAuth } from '@/mobile/MobileAuth';
+import { MobileContactUs } from '@/mobile/MobileContactUs';
 
-type Tab = 'home' | 'search' | 'messages' | 'notifications' | 'profile';
+export type Tab = 'home' | 'search' | 'messages' | 'notifications' | 'profile';
 
 export interface ChatTarget {
   userId: string;
@@ -28,6 +29,17 @@ export function MobileApp() {
   const [activeTab, setActiveTab] = useState<Tab>('home');
   const [unreadCount, setUnreadCount] = useState(0);
   const [chatTarget, setChatTarget] = useState<ChatTarget | null>(null);
+  const [showContact, setShowContact] = useState(false);
+
+  const loadUnreadCount = useCallback(async () => {
+    if (!profile?.id) return;
+    const { count } = await supabase
+      .from('chat_messages')
+      .select('*', { count: 'exact', head: true })
+      .neq('sender_id', profile.id)
+      .is('read_at', null);
+    setUnreadCount(count || 0);
+  }, [profile?.id]);
 
   useEffect(() => {
     if (!profile?.id) return;
@@ -39,17 +51,7 @@ export function MobileApp() {
       .subscribe();
     loadUnreadCount();
     return () => { supabase.removeChannel(channel); };
-  }, [profile?.id]);
-
-  const loadUnreadCount = async () => {
-    if (!profile?.id) return;
-    const { count } = await supabase
-      .from('chat_messages')
-      .select('*', { count: 'exact', head: true })
-      .neq('sender_id', profile.id)
-      .is('read_at', null);
-    setUnreadCount(count || 0);
-  };
+  }, [profile?.id, loadUnreadCount]);
 
   const openChatWith = useCallback((target: ChatTarget) => {
     setChatTarget(target);
@@ -72,22 +74,32 @@ export function MobileApp() {
     return <MobilePending />;
   }
 
+  if (showContact) {
+    return (
+      <div className="flex flex-col h-screen bg-slate-50 max-w-md mx-auto overflow-hidden">
+        <div className="flex-1 overflow-y-auto">
+          <MobileContactUs onBack={() => setShowContact(false)} />
+        </div>
+      </div>
+    );
+  }
+
   const tabs: { key: Tab; icon: typeof HomeIcon; label: string; badge?: number }[] = [
     { key: 'home', icon: HomeIcon, label: 'Home' },
     { key: 'search', icon: Search, label: t('common.search') },
     { key: 'messages', icon: MessageCircle, label: t('nav.chat'), badge: unreadCount },
-    { key: 'notifications', icon: Bell, label: t('nav.admin') === 'لوحة الإدارة' ? 'الإشعارات' : 'Ogeysiis' },
+    { key: 'notifications', icon: Bell, label: 'Ogeysiis' },
     { key: 'profile', icon: User, label: t('nav.profile') },
   ];
 
   return (
     <div className="flex flex-col h-screen bg-slate-50 max-w-md mx-auto overflow-hidden">
       <div className="flex-1 overflow-y-auto overscroll-contain -webkit-overflow-scrolling-touch">
-        {activeTab === 'home' && <MobileHome onNavigate={setActiveTab} />}
+        {activeTab === 'home' && <MobileHome onNavigate={setActiveTab} onOpenMember={(id) => { /* handled in search */ }} onOpenChat={openChatWith} />}
         {activeTab === 'search' && <MobileSearch onMessage={openChatWith} />}
         {activeTab === 'messages' && <MobileMessages chatTarget={chatTarget} onChatTargetConsumed={() => setChatTarget(null)} />}
         {activeTab === 'notifications' && <MobileNotifications />}
-        {activeTab === 'profile' && <MobileProfile />}
+        {activeTab === 'profile' && <MobileProfile onContactUs={() => setShowContact(true)} />}
       </div>
 
       <nav className="flex items-center justify-around bg-white border-t border-slate-200 px-1 pb-[env(safe-area-inset-bottom)] flex-shrink-0">

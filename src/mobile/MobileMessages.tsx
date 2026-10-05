@@ -29,12 +29,23 @@ export function MobileMessages({ chatTarget, onChatTargetConsumed }: MobileMessa
   const [canSend, setCanSend] = useState(false);
   const [showPayment, setShowPayment] = useState(false);
   const [openingChat, setOpeningChat] = useState(false);
+  const [search, setSearch] = useState('');
+  const [showConvList, setShowConvList] = useState(true);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const loadConversations = useCallback(async () => {
     if (!profile?.id) return;
-    const { data } = await supabase.rpc('get_my_conversations');
-    setConversations((data as ChatConversation[]) || []);
+    const { data, error } = await supabase.rpc('get_my_conversations');
+    if (error) {
+      const { data: direct } = await supabase
+        .from('chat_conversations')
+        .select('*')
+        .or(`user1_id.eq.${profile.id},user2_id.eq.${profile.id}`)
+        .order('created_at', { ascending: false });
+      setConversations((direct as ChatConversation[]) || []);
+    } else {
+      setConversations((data as ChatConversation[]) || []);
+    }
     setLoading(false);
   }, [profile?.id]);
 
@@ -45,7 +56,6 @@ export function MobileMessages({ chatTarget, onChatTargetConsumed }: MobileMessa
     supabase.rpc('can_send_messages').then(({ data }) => setCanSend((data as boolean) || false));
   }, [profile?.id]);
 
-  // When chatTarget is set (from Search tab), find or create conversation
   useEffect(() => {
     if (!chatTarget || !profile?.id) return;
     let cancelled = false;
@@ -53,7 +63,7 @@ export function MobileMessages({ chatTarget, onChatTargetConsumed }: MobileMessa
 
     (async () => {
       const { data: existing } = await supabase
-        .from('conversations')
+        .from('chat_conversations')
         .select('id')
         .or(`and(user1_id.eq.${profile.id},user2_id.eq.${chatTarget.userId}),and(user1_id.eq.${chatTarget.userId},user2_id.eq.${profile.id})`)
         .maybeSingle();
@@ -63,9 +73,10 @@ export function MobileMessages({ chatTarget, onChatTargetConsumed }: MobileMessa
       if (existing) {
         setSelectedConv(existing.id);
         setOtherUser({ id: chatTarget.userId, full_name: chatTarget.fullName, avatar_url: chatTarget.avatarUrl });
+        setShowConvList(false);
       } else {
         const { data: newConv, error } = await supabase
-          .from('conversations')
+          .from('chat_conversations')
           .insert({ user1_id: profile.id, user2_id: chatTarget.userId })
           .select('id')
           .single();
@@ -75,6 +86,7 @@ export function MobileMessages({ chatTarget, onChatTargetConsumed }: MobileMessa
         } else if (newConv) {
           setSelectedConv(newConv.id);
           setOtherUser({ id: chatTarget.userId, full_name: chatTarget.fullName, avatar_url: chatTarget.avatarUrl });
+          setShowConvList(false);
         }
       }
       setOpeningChat(false);
@@ -120,7 +132,7 @@ export function MobileMessages({ chatTarget, onChatTargetConsumed }: MobileMessa
     setSending(true);
     const { data: inserted } = await supabase
       .from('chat_messages')
-      .insert({ conversation_id: selectedConv, sender_id: profile.id, content })
+      .insert({ conversation_id: selectedConv, sender_id: profile.id, content, message_type: 'text' })
       .select('id, conversation_id, sender_id, content, read_at, created_at, message_type, call_status, call_duration_seconds, call_history_id, audio_url, audio_duration_seconds')
       .single();
     if (inserted) {
@@ -139,11 +151,11 @@ export function MobileMessages({ chatTarget, onChatTargetConsumed }: MobileMessa
     );
   }
 
-  if (selectedConv && otherUser) {
+  if (selectedConv && otherUser && !showConvList) {
     return (
       <div className="flex flex-col h-full bg-slate-50">
         <div className="flex items-center gap-3 px-3 py-3 bg-white border-b border-slate-200 flex-shrink-0">
-          <button onClick={() => { setSelectedConv(null); setOtherUser(null); setMessages([]); loadConversations(); }} className="p-1.5 -ml-1">
+          <button onClick={() => { setShowConvList(true); setSelectedConv(null); setOtherUser(null); setMessages([]); loadConversations(); }} className="p-1.5 -ml-1">
             <ArrowLeft className="w-5 h-5 text-slate-600" />
           </button>
           {otherUser.avatar_url ? (
@@ -165,6 +177,30 @@ export function MobileMessages({ chatTarget, onChatTargetConsumed }: MobileMessa
           ) : (
             messages.map((msg) => {
               const isMine = msg.sender_id === profile?.id;
+              if (msg.message_type === 'call_event') {
+                return (
+                  <div key={msg.id} className="flex justify-center">
+                    <div className="bg-slate-100 text-slate-600 text-xs rounded-full px-3 py-1.5">
+                      {msg.call_status === 'missed' && '📞 Wici lama qaban'}
+                      {msg.call_status === 'declined' && '📞 Wici waa la diiday'}
+                      {msg.call_status === 'answered' && `📞 Wici la qabtay · ${msg.call_duration_seconds || 0}s`}
+                      {msg.call_status === 'failed' && '📞 Wici khalad ayaa dhacay'}
+                    </div>
+                  </div>
+                );
+              }
+              if (msg.message_type === 'voice' && msg.audio_url) {
+                return (
+                  <div key={msg.id} className={`flex ${isMine ? 'justify-end' : 'justify-start'}`}>
+                    <div className={`max-w-[75%] rounded-2xl px-3.5 py-2 ${isMine ? 'bg-emerald-600 text-white rounded-br-sm' : 'bg-white text-slate-900 rounded-bl-sm border border-slate-100'}`}>
+                      <audio src={msg.audio_url} controls className="h-8" />
+                      <p className={`text-[10px] mt-0.5 ${isMine ? 'text-emerald-100' : 'text-slate-400'}`}>
+                        {new Date(msg.created_at).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
+                      </p>
+                    </div>
+                  </div>
+                );
+              }
               return (
                 <div key={msg.id} className={`flex ${isMine ? 'justify-end' : 'justify-start'}`}>
                   <div className={`max-w-[75%] rounded-2xl px-3.5 py-2 ${
@@ -231,6 +267,7 @@ export function MobileMessages({ chatTarget, onChatTargetConsumed }: MobileMessa
                 onClick={() => {
                   setSelectedConv(conv.id);
                   setOtherUser(other);
+                  setShowConvList(false);
                 }}
                 className="w-full flex items-center gap-3 p-3.5 hover:bg-slate-50 transition-colors text-left"
               >

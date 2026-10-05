@@ -5,12 +5,16 @@ import { useLanguage } from '@/lib/language-context';
 import { useToast } from '@/components/Toast';
 import {
   Camera, Edit3, LogOut, Globe, ChevronRight, X, Check,
-  User, Mail, Phone, Calendar, Heart, Home, Briefcase, Loader2,
+  User, Mail, Phone, Calendar, Heart, Home, Briefcase, Loader2, MessageSquare,
 } from 'lucide-react';
 import { GENDER_OPTIONS, MARITAL_STATUS_OPTIONS } from '@/lib/constants';
 import type { Language } from '@/lib/translations';
 
-export function MobileProfile() {
+interface Props {
+  onContactUs: () => void;
+}
+
+export function MobileProfile({ onContactUs }: Props) {
   const { profile, signOut, refreshProfile } = useAuth();
   const { t, language, setLanguage } = useLanguage();
   const { show } = useToast();
@@ -91,7 +95,6 @@ export function MobileProfile() {
 
   return (
     <div className="min-h-full bg-slate-50">
-      {/* Profile header */}
       <div className="bg-gradient-to-br from-emerald-700 to-teal-700 px-4 pt-6 pb-20 relative">
         <div className="flex justify-between items-start mb-4">
           <h1 className="text-white font-bold text-lg">{t('nav.profile')}</h1>
@@ -101,7 +104,6 @@ export function MobileProfile() {
         </div>
       </div>
 
-      {/* Avatar + name */}
       <div className="px-4 -mt-16 relative">
         <div className="flex flex-col items-center">
           <div className="relative">
@@ -122,10 +124,12 @@ export function MobileProfile() {
           </div>
           <h2 className="text-xl font-bold text-slate-900 mt-3">{profile?.full_name}</h2>
           <p className="text-sm text-slate-500">{profile?.city ? profile.city + ', ' : ''}{profile?.country || ''}</p>
+          {profile?.is_admin && (
+            <span className="mt-2 px-3 py-1 bg-emerald-100 text-emerald-700 text-xs font-bold rounded-full">Maamulaha</span>
+          )}
         </div>
       </div>
 
-      {/* Info cards */}
       <div className="px-4 mt-6 space-y-3">
         {profile?.bio && (
           <InfoCard label="Fahfahin" value={profile.bio} />
@@ -140,11 +144,9 @@ export function MobileProfile() {
         </div>
       </div>
 
-      {/* Settings */}
       <div className="px-4 mt-6 pb-6">
         <h3 className="text-sm font-bold text-slate-900 mb-3">Beegaha</h3>
         <div className="bg-white rounded-2xl border border-slate-100 overflow-hidden">
-          {/* Language selector */}
           <div className="p-4 border-b border-slate-50">
             <div className="flex items-center gap-3 mb-3">
               <Globe className="w-5 h-5 text-slate-400" />
@@ -165,17 +167,15 @@ export function MobileProfile() {
             </div>
           </div>
 
-          {/* Website link */}
           <button
-            onClick={() => window.open('/', '_blank')}
+            onClick={onContactUs}
             className="w-full flex items-center gap-3 p-4 hover:bg-slate-50 transition-colors"
           >
-            <Home className="w-5 h-5 text-slate-400" />
-            <span className="text-sm font-medium text-slate-700 flex-1 text-left">Website-ka u laabo</span>
+            <MessageSquare className="w-5 h-5 text-slate-400" />
+            <span className="text-sm font-medium text-slate-700 flex-1 text-left">Nala Soo Xiriir</span>
             <ChevronRight className="w-4 h-4 text-slate-300" />
           </button>
 
-          {/* Logout */}
           <button
             onClick={handleLogout}
             className="w-full flex items-center gap-3 p-4 hover:bg-red-50 transition-colors border-t border-slate-50"

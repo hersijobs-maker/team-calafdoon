@@ -1,10 +1,12 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import { useToast } from '@/components/Toast';
 import { useLanguage } from '@/lib/language-context';
-import { Loader2, Heart, Mail, Lock, User, Phone, ArrowLeft } from 'lucide-react';
+import { Loader2, Heart, Mail, Lock, User, Phone, ArrowLeft, Upload, DollarSign, AlertCircle, CheckCircle2, X } from 'lucide-react';
 import { GENDER_OPTIONS, MARITAL_STATUS_OPTIONS } from '@/lib/constants';
+
+const ADMIN_PAYMENT_NUMBER = '616246852';
 
 export function MobileAuth() {
   const navigate = useNavigate();
@@ -16,6 +18,9 @@ export function MobileAuth() {
     email: '', password: '', full_name: '', phone: '',
     age: '', gender: '', country: '', city: '', marital_status: '', bio: '',
   });
+  const [paymentScreenshot, setPaymentScreenshot] = useState<File | null>(null);
+  const [screenshotPreview, setScreenshotPreview] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -31,34 +36,100 @@ export function MobileAuth() {
     }
   };
 
+  const handleScreenshotChange = (file: File | null) => {
+    if (!file) return;
+    if (file.size > 5 * 1024 * 1024) { show('Screenshot-ka waa inuu noqdaa in ka yar 5MB', 'error'); return; }
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) { show('JPEG, PNG ama WebP', 'error'); return; }
+    setPaymentScreenshot(file);
+    const reader = new FileReader();
+    reader.onload = (ev) => setScreenshotPreview(ev.target?.result as string);
+    reader.readAsDataURL(file);
+  };
+
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
-    setLoading(true);
-    const { data, error } = await supabase.auth.signUp({
-      email: form.email.toLowerCase(),
-      password: form.password,
-      options: {
-        data: {
-          full_name: form.full_name, phone: form.phone, age: form.age,
-          gender: form.gender, country: form.country, city: form.city,
-          marital_status: form.marital_status, bio: form.bio,
-        },
-      },
-    });
-    if (error) {
-      show(error.message, 'error');
-      setLoading(false);
+    if (!form.email.trim() || !form.password || !form.full_name.trim()) {
+      show('Fadlan buuxi meelaha loo baahan yahay', 'error');
       return;
     }
-    if (data.user) {
-      show('Codsigaaga waa la diray. Fadlan sug inta maamulka uu kuu ansixinayo.', 'success');
+    if (form.password.length < 8) {
+      show('Erayga sirta ah waa inuu noqdaa ugu yaraan 8 xaraf', 'error');
+      return;
+    }
+    if (!paymentScreenshot) {
+      show('Fadlan soo geli screenshot-ka lacagta $1', 'error');
+      return;
+    }
+    setLoading(true);
+    try {
+      const { data: authData, error: authError } = await supabase.auth.signUp({
+        email: form.email.toLowerCase(),
+        password: form.password,
+        options: {
+          data: {
+            full_name: form.full_name, phone: form.phone, age: form.age,
+            gender: form.gender, country: form.country, city: form.city,
+            marital_status: form.marital_status, bio: form.bio,
+          },
+        },
+      });
+
+      if (authError) {
+        const msg = authError.message || '';
+        if (msg.includes('already') || msg.includes('exists')) {
+          show('Emailkan hore ayuu diiwaan gashan. Fadlan soo gal.', 'error');
+        } else if (msg.includes('rate limit') || msg.includes('60 seconds')) {
+          show('Sug 60 ilbiriqsi oo isku day mar kale.', 'error');
+        } else {
+          show(`Lama abuurin akoonka: ${msg}`, 'error');
+        }
+        setLoading(false);
+        return;
+      }
+
+      if (!authData.user) {
+        show('Diiwaangelintu way fashilantay.', 'error');
+        setLoading(false);
+        return;
+      }
+
+      // Upload payment screenshot
+      const screenshotExt = paymentScreenshot.name.split('.').pop();
+      const screenshotName = `${authData.user.id}/payment.${screenshotExt}`;
+      const { error: screenshotUploadError } = await supabase.storage
+        .from('payment-screenshots')
+        .upload(screenshotName, paymentScreenshot, { upsert: true });
+
+      if (screenshotUploadError) {
+        show('Lama soo geliyo screenshot-ka lacagta.', 'error');
+        setLoading(false);
+        return;
+      }
+
+      const { data: screenshotUrlData } = supabase.storage
+        .from('payment-screenshots')
+        .getPublicUrl(screenshotName);
+
+      // Submit payment proof
+      const { error: submitError } = await supabase.rpc('submit_registration_payment', {
+        p_screenshot_url: screenshotUrlData.publicUrl,
+      });
+
+      if (submitError) {
+        show(submitError.message || 'Lama dhaafin caddeynta lacagta.', 'error');
+        setLoading(false);
+        return;
+      }
+
+      show('Codsigaaga waa la diray. Sug inta maamulka uu kuu ansixinayo.', 'success');
+    } catch {
+      show('Khalad ayaa dhacay. Fadlan isku day mar kale.', 'error');
     }
     setLoading(false);
   };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-emerald-600 via-emerald-700 to-teal-800 flex flex-col">
-      {/* Header */}
       <div className="flex-1 flex flex-col items-center justify-center px-6 pt-12">
         <div className="w-16 h-16 rounded-2xl bg-white/15 backdrop-blur flex items-center justify-center mb-4 ring-1 ring-white/20">
           <Heart className="w-8 h-8 text-white" />
@@ -67,9 +138,7 @@ export function MobileAuth() {
         <p className="text-emerald-100/80 text-sm mt-1">Isku Xir Qoyas Farxad Leh</p>
       </div>
 
-      {/* Auth card */}
       <div className="bg-white rounded-t-3xl px-6 pt-6 pb-8 shadow-2xl">
-        {/* Tab switcher */}
         <div className="flex bg-slate-100 rounded-xl p-1 mb-6">
           <button
             onClick={() => setMode('login')}
@@ -112,10 +181,46 @@ export function MobileAuth() {
               <InputField placeholder="Magaalada" value={form.city} onChange={(v) => setForm({ ...form, city: v })} />
             </div>
             <SelectField value={form.marital_status} onChange={(v) => setForm({ ...form, marital_status: v })} placeholder="Xaaladaha Guurka" options={MARITAL_STATUS_OPTIONS.map(m => ({ value: m.value, label: m.label_so }))} />
+
+            {/* Payment section */}
+            <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 space-y-3">
+              <div className="flex items-center gap-2">
+                <DollarSign className="w-5 h-5 text-emerald-600" />
+                <p className="text-sm font-semibold text-emerald-900">Lacagta Diiwaangelinta: $1</p>
+              </div>
+              <div className="flex items-center justify-center gap-2 bg-white rounded-lg py-3 border-2 border-emerald-300">
+                <Phone className="w-5 h-5 text-emerald-600" />
+                <span className="text-lg font-bold text-slate-900 tracking-wider">{ADMIN_PAYMENT_NUMBER}</span>
+              </div>
+              <p className="text-xs text-emerald-700">$1 ku dir lambarka kor ku qoran, kadibna soo geli screenshot-ka.</p>
+
+              {screenshotPreview ? (
+                <div className="relative rounded-xl overflow-hidden border-2 border-emerald-300">
+                  <img src={screenshotPreview} alt="Payment" className="w-full max-h-32 object-contain bg-white" />
+                  <button type="button" onClick={() => { setPaymentScreenshot(null); setScreenshotPreview(null); }} className="absolute top-2 right-2 bg-black/60 text-white rounded-full p-1.5">
+                    <X className="w-4 h-4" />
+                  </button>
+                  <div className="absolute bottom-2 left-2 bg-emerald-600 text-white text-xs px-2 py-1 rounded-full flex items-center gap-1">
+                    <CheckCircle2 className="w-3 h-3" /> La soo geliyay
+                  </div>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="w-full flex flex-col items-center justify-center gap-2 p-4 rounded-xl border-2 border-dashed border-emerald-300"
+                >
+                  <Upload className="w-6 h-6 text-emerald-500" />
+                  <p className="text-sm text-emerald-700">Soo geli sawirka lacagta</p>
+                  <p className="text-xs text-slate-400">JPEG, PNG, WebP (max 5MB)</p>
+                </button>
+              )}
+              <input ref={fileInputRef} type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={(e) => handleScreenshotChange(e.target.files?.[0] || null)} />
+            </div>
+
             <button type="submit" disabled={loading} className="w-full bg-gradient-to-r from-emerald-600 to-teal-600 text-white font-bold py-3.5 rounded-xl disabled:opacity-50 flex items-center justify-center gap-2">
               {loading ? <><Loader2 className="w-5 h-5 animate-spin" /> Waa la dirayaa...</> : <><Heart className="w-5 h-5" /> Diiwaangeli</>}
             </button>
-            <p className="text-xs text-slate-400 text-center">Diiwaangelintu waa $1. Markaad diiwaan gasho, lacagta bixi kadibna soo geli screenshot-ka.</p>
           </form>
         )}
 

@@ -2,9 +2,10 @@ import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth-context';
 import { useToast } from '@/components/Toast';
-import { Search, Loader2, MessageCircle, UserCheck, Heart, X, AlertCircle } from 'lucide-react';
+import { Search, Loader2, MessageCircle, UserCheck, Heart, X, AlertCircle, ArrowLeft, Phone, Calendar, MapPin } from 'lucide-react';
 import type { DirectoryMember } from '@/lib/types';
 import type { ChatTarget } from '@/mobile/MobileApp';
+import { GENDER_OPTIONS, MARITAL_STATUS_OPTIONS } from '@/lib/constants';
 
 const MARITAL_LABELS: Record<string, string> = {
   single: 'Aan guursan', divorced: 'Guur laga xigay', widowed: 'Luumay', married: 'Guursan',
@@ -17,6 +18,7 @@ export function MobileSearch({ onMessage }: { onMessage: (target: ChatTarget) =>
   const [results, setResults] = useState<DirectoryMember[]>([]);
   const [loading, setLoading] = useState(false);
   const [selected, setSelected] = useState<DirectoryMember | null>(null);
+  const [selectedProfile, setSelectedProfile] = useState<DirectoryMember | null>(null);
   const [connectionStatuses, setConnectionStatuses] = useState<Record<string, string>>({});
 
   const search = useCallback(async () => {
@@ -44,16 +46,9 @@ export function MobileSearch({ onMessage }: { onMessage: (target: ChatTarget) =>
 
   const sendConnection = async (userId: string) => {
     if (!profile?.id) return;
-    const { error } = await supabase
-      .from('connections')
-      .insert({ requester_id: profile.id, addressee_id: userId, status: 'pending' });
+    const { error } = await supabase.rpc('send_connection_request', { p_recipient_id: userId });
     if (error) {
-      if (error.code === '23505') {
-        show('Hadda waxaa jira codsi kulmo oo sugita ah.', 'error');
-        setConnectionStatuses({ ...connectionStatuses, [userId]: 'pending' });
-      } else {
-        show('Lama dirin codsiga: ' + error.message, 'error');
-      }
+      show('Lama dirin codsiga: ' + error.message, 'error');
     } else {
       setConnectionStatuses({ ...connectionStatuses, [userId]: 'pending' });
       show('Codsiga kulmo waa la diray!', 'success');
@@ -64,6 +59,15 @@ export function MobileSearch({ onMessage }: { onMessage: (target: ChatTarget) =>
     onMessage({ userId: m.id, fullName: m.full_name, avatarUrl: m.avatar_url });
     setSelected(null);
   };
+
+  const openMemberProfile = (m: DirectoryMember) => {
+    setSelectedProfile(m);
+    setSelected(null);
+  };
+
+  if (selectedProfile) {
+    return <MemberProfileView member={selectedProfile} onBack={() => setSelectedProfile(null)} onMessage={handleMessage} onConnect={sendConnection} connectionStatus={connectionStatuses[selectedProfile.id]} />;
+  }
 
   return (
     <div className="min-h-full bg-slate-50">
@@ -101,24 +105,25 @@ export function MobileSearch({ onMessage }: { onMessage: (target: ChatTarget) =>
         ) : (
           results.map((m) => (
             <div key={m.id} className="bg-white rounded-2xl border border-slate-100 p-3 flex items-center gap-3">
-              {m.avatar_url ? (
-                <img src={m.avatar_url} alt={m.full_name} className="w-14 h-14 rounded-full object-cover flex-shrink-0" />
-              ) : (
-                <div className="w-14 h-14 rounded-full bg-gradient-to-br from-emerald-100 to-teal-200 flex items-center justify-center text-lg font-bold text-emerald-700 flex-shrink-0">
-                  {m.full_name.charAt(0).toUpperCase()}
+              <button onClick={() => openMemberProfile(m)} className="flex items-center gap-3 flex-1 min-w-0">
+                {m.avatar_url ? (
+                  <img src={m.avatar_url} alt={m.full_name} className="w-14 h-14 rounded-full object-cover flex-shrink-0" />
+                ) : (
+                  <div className="w-14 h-14 rounded-full bg-gradient-to-br from-emerald-100 to-teal-200 flex items-center justify-center text-lg font-bold text-emerald-700 flex-shrink-0">
+                    {m.full_name.charAt(0).toUpperCase()}
+                  </div>
+                )}
+                <div className="flex-1 min-w-0 text-left">
+                  <p className="font-semibold text-slate-900 text-sm truncate">{m.full_name}</p>
+                  <p className="text-xs text-slate-500 truncate">
+                    {m.city ? m.city : ''}
+                    {m.city && m.marital_status ? ' · ' : ''}
+                    {m.marital_status ? MARITAL_LABELS[m.marital_status] || '' : ''}
+                  </p>
                 </div>
-              )}
-              <div className="flex-1 min-w-0">
-                <p className="font-semibold text-slate-900 text-sm truncate">{m.full_name}</p>
-                <p className="text-xs text-slate-500 truncate">
-                  {m.city ? m.city : ''}
-                  {m.city && m.marital_status ? ' · ' : ''}
-                  {m.marital_status ? MARITAL_LABELS[m.marital_status] || '' : ''}
-                </p>
-                {m.bio && <p className="text-xs text-slate-400 truncate mt-0.5">{m.bio}</p>}
-              </div>
+              </button>
               <button
-                onClick={() => setSelected(m)}
+                onClick={() => openMemberProfile(m)}
                 className="w-9 h-9 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center flex-shrink-0 active:scale-90 transition-transform"
               >
                 <Heart className="w-4 h-4" />
@@ -184,6 +189,114 @@ export function MobileSearch({ onMessage }: { onMessage: (target: ChatTarget) =>
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function MemberProfileView({ member, onBack, onMessage, onConnect, connectionStatus }: {
+  member: DirectoryMember;
+  onBack: () => void;
+  onMessage: (m: DirectoryMember) => void;
+  onConnect: (id: string) => void;
+  connectionStatus?: string;
+}) {
+  return (
+    <div className="min-h-full bg-slate-50">
+      <div className="relative">
+        {member.avatar_url ? (
+          <img src={member.avatar_url} alt={member.full_name} className="w-full h-64 object-cover" />
+        ) : (
+          <div className="w-full h-64 bg-gradient-to-br from-emerald-700 to-teal-700 flex items-center justify-center">
+            <span className="text-5xl font-bold text-white">{member.full_name.charAt(0).toUpperCase()}</span>
+          </div>
+        )}
+        <button onClick={onBack} className="absolute top-4 left-4 w-9 h-9 rounded-full bg-black/40 text-white flex items-center justify-center">
+          <ArrowLeft className="w-5 h-5" />
+        </button>
+      </div>
+      <div className="px-4 -mt-8 relative">
+        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
+          <h2 className="text-xl font-bold text-slate-900">{member.full_name}</h2>
+          <div className="flex flex-wrap gap-2 mt-2">
+            {member.city && <Tag label={member.city} />}
+            {member.country && <Tag label={member.country} />}
+            {member.marital_status && <Tag label={MARITAL_LABELS[member.marital_status] || member.marital_status} />}
+            {member.age && <Tag label={`${member.age} sano`} />}
+            {member.gender && <Tag label={GENDER_OPTIONS.find(g => g.value === member.gender)?.label_so || member.gender} />}
+          </div>
+          {member.bio && (
+            <div className="mt-4">
+              <p className="text-xs font-semibold text-slate-500 uppercase mb-1">Iftiiminta</p>
+              <p className="text-sm text-slate-700 leading-relaxed">{member.bio}</p>
+            </div>
+          )}
+          {member.looking_for && (
+            <div className="mt-4">
+              <p className="text-xs font-semibold text-slate-500 uppercase mb-1">Waxa la raadinayo</p>
+              <p className="text-sm text-slate-700 leading-relaxed">{member.looking_for}</p>
+            </div>
+          )}
+          {member.profession && (
+            <div className="mt-3 flex items-center gap-2 text-sm text-slate-600">
+              <span className="font-semibold text-slate-500">Xirfadeynta:</span> {member.profession}
+            </div>
+          )}
+        </div>
+
+        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5 mt-3 space-y-3">
+          {member.phone && (
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center text-slate-500">
+                <Phone className="w-4 h-4" />
+              </div>
+              <div>
+                <p className="text-xs text-slate-400">Telefoon</p>
+                <p className="text-sm font-medium text-slate-700">{member.phone}</p>
+              </div>
+            </div>
+          )}
+          {member.age && (
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center text-slate-500">
+                <Calendar className="w-4 h-4" />
+              </div>
+              <div>
+                <p className="text-xs text-slate-400">Da'da</p>
+                <p className="text-sm font-medium text-slate-700">{member.age} sano</p>
+              </div>
+            </div>
+          )}
+          {(member.city || member.country) && (
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center text-slate-500">
+                <MapPin className="w-4 h-4" />
+              </div>
+              <div>
+                <p className="text-xs text-slate-400">Goobta</p>
+                <p className="text-sm font-medium text-slate-700">{[member.city, member.country].filter(Boolean).join(', ')}</p>
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="flex gap-3 mt-4 pb-6">
+          <button
+            onClick={() => onConnect(member.id)}
+            disabled={connectionStatus === 'pending'}
+            className="flex-1 bg-emerald-600 text-white font-semibold py-3 rounded-xl disabled:opacity-50 flex items-center justify-center gap-2"
+          >
+            <UserCheck className="w-5 h-5" />
+            {connectionStatus === 'pending' ? 'Sugita' : 'Kulmo'}
+          </button>
+          <button
+            onClick={() => onMessage(member)}
+            className="flex-1 bg-slate-100 text-slate-700 font-semibold py-3 rounded-xl flex items-center justify-center gap-2 active:scale-95 transition-transform"
+          >
+            <MessageCircle className="w-5 h-5" />
+            Fariin
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
