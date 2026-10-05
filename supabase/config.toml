@@ -5,3 +5,7 @@ entrypoint = "./functions/confirm-registration-payment/index.ts"
 [functions.send-call-push]
 verify_jwt = true
 entrypoint = "./functions/send-call-push/index.ts"
+
+[functions.send-chat-push]
+verify_jwt = false
+entrypoint = "./functions/send-chat-push/index.ts"

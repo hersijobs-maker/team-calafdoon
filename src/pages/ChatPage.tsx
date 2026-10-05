@@ -309,12 +309,23 @@ export function ChatPage() {
     };
   }, [profile?.id, loadConversations]);
 
+  // Track the currently open conversation for notification suppression
+  useEffect(() => {
+    if (selectedConv) {
+      window.dispatchEvent(new CustomEvent('chat-conv-opened', { detail: { conversationId: selectedConv } }));
+    } else {
+      window.dispatchEvent(new CustomEvent('chat-conv-closed'));
+    }
+  }, [selectedConv]);
+
   // Realtime subscription for messages in selected conversation
   useEffect(() => {
     if (!selectedConv) return;
 
     const channel = supabase
-      .channel(`chat_messages_${selectedConv}`)
+      .channel(`chat_messages_${selectedConv}`, {
+        config: { private: true },
+      })
       .on(
         'postgres_changes',
         {
@@ -334,12 +345,27 @@ export function ChatPage() {
           }
         },
       )
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'chat_messages',
+          filter: `conversation_id=eq.${selectedConv}`,
+        },
+        (payload) => {
+          const updatedMsg = payload.new as ChatMessage;
+          setMessages((prev) =>
+            prev.map((m) => (m.id === updatedMsg.id ? updatedMsg : m)),
+          );
+        },
+      )
       .subscribe();
 
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [selectedConv, profile?.id, markAsRead]);
+  }, [selectedConv, markAsRead, profile?.id]);
 
   // Scroll to bottom when messages change
   useEffect(() => {

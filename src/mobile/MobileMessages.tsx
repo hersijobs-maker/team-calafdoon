@@ -108,16 +108,35 @@ export function MobileMessages({ chatTarget, onChatTargetConsumed }: MobileMessa
   }, [profile?.id]);
 
   useEffect(() => {
+    if (selectedConv) {
+      window.dispatchEvent(new CustomEvent('chat-conv-opened', { detail: { conversationId: selectedConv } }));
+    } else {
+      window.dispatchEvent(new CustomEvent('chat-conv-closed'));
+    }
+  }, [selectedConv]);
+
+  useEffect(() => {
     if (!selectedConv) return;
     loadMessages(selectedConv);
     const channel = supabase
-      .channel(`mobile-conv-${selectedConv}`)
+      .channel(`mobile-conv-${selectedConv}`, {
+        config: { private: true },
+      })
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'chat_messages', filter: `conversation_id=eq.${selectedConv}` }, (payload) => {
-        setMessages((prev) => prev.some((m) => m.id === payload.new.id) ? prev : [...prev, payload.new as ChatMessage]);
+        const newMsg = payload.new as ChatMessage;
+        setMessages((prev) => prev.some((m) => m.id === newMsg.id) ? prev : [...prev, newMsg]);
+        if (newMsg.sender_id !== profile?.id) {
+          supabase.from('chat_messages').update({ read_at: new Date().toISOString() })
+            .eq('conversation_id', selectedConv).neq('sender_id', profile?.id || '').is('read_at', null);
+        }
+      })
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'chat_messages', filter: `conversation_id=eq.${selectedConv}` }, (payload) => {
+        const updatedMsg = payload.new as ChatMessage;
+        setMessages((prev) => prev.map((m) => (m.id === updatedMsg.id ? updatedMsg : m)));
       })
       .subscribe();
     return () => { supabase.removeChannel(channel); };
-  }, [selectedConv, loadMessages]);
+  }, [selectedConv, loadMessages, profile?.id]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -136,7 +155,8 @@ export function MobileMessages({ chatTarget, onChatTargetConsumed }: MobileMessa
       .select('id, conversation_id, sender_id, content, read_at, created_at, message_type, call_status, call_duration_seconds, call_history_id, audio_url, audio_duration_seconds')
       .single();
     if (inserted) {
-      setMessages((prev) => [...prev, inserted as ChatMessage]);
+      const newMsg = inserted as ChatMessage;
+      setMessages((prev) => prev.some((m) => m.id === newMsg.id) ? prev : [...prev, newMsg]);
       loadConversations();
     }
     setSending(false);

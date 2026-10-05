@@ -258,7 +258,7 @@ function StoryViewerMobile({ group, allGroups, onClose }: {
 
   useEffect(() => {
     if (!currentStory) return;
-    supabase.rpc('record_story_view', { p_story_id: currentStory.id }).catch(() => {});
+    supabase.rpc('record_story_view', { p_story_id: currentStory.id }).then(({ error }) => { if (error) { /* ignore */ } });
   }, [currentStory]);
 
   useEffect(() => {

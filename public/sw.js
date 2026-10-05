@@ -1,4 +1,5 @@
-// Service Worker for TeamCalafdoon — Web Push Notifications for incoming calls
+// Service Worker for Team Calafdoon — Web Push Notifications
+// Handles: incoming call notifications, chat message notifications with inline reply
 
 self.addEventListener('install', (event) => {
   self.skipWaiting();
@@ -8,48 +9,80 @@ self.addEventListener('activate', (event) => {
   event.waitUntil(self.clients.claim());
 });
 
-// Handle push events — display call notification
+// ============================================================
+// PUSH EVENT — display notification
+// ============================================================
 self.addEventListener('push', (event) => {
   let data = {};
   try {
     data = event.data ? event.data.json() : {};
   } catch {
-    data = { title: 'Wici soo dhacay', body: 'Qof kuu wiciayaa' };
+    data = { title: 'Ogeysiis', body: 'Fariin cusub' };
   }
 
-  const title = data.title || 'Wici soo dhacay';
-  const body = data.body || 'Qof kuu wiciayaa...';
-  const icon = data.icon || '/vite.svg';
-  const badge = data.badge || '/vite.svg';
-  const tag = data.tag || 'incoming-call';
+  const notificationType = (data.data && data.data.type) || 'call';
+  const title = data.title || 'Ogeysiis';
+  const body = data.body || '';
+  const icon = data.icon || '/icon-192.png';
+  const badge = data.badge || '/icon-192.png';
+  const tag = data.tag || 'notification';
   const requireInteraction = data.requireInteraction !== false;
+  const vibrate = data.vibrate || [100, 50, 100];
 
-  const options = {
-    body,
-    icon,
-    badge,
-    tag,
-    requireInteraction,
-    renotify: true,
-    data: data.data || {},
-    actions: [
-      { action: 'answer', title: 'Aqbal' },
-      { action: 'decline', title: 'Diidi' },
-    ],
-    vibrate: [200, 100, 200, 100, 200, 100, 200],
-  };
+  let options;
+
+  if (notificationType === 'chat_message') {
+    // Chat message notification with inline reply
+    options = {
+      body,
+      icon,
+      badge,
+      tag,
+      renotify: data.renotify !== false,
+      requireInteraction: false,
+      data: data.data || {},
+      actions: [
+        { action: 'reply', title: 'Jawaab' },
+        { action: 'view', title: 'Eeg' },
+      ],
+      vibrate,
+    };
+  } else {
+    // Call notification (existing behavior)
+    options = {
+      body,
+      icon,
+      badge,
+      tag,
+      requireInteraction,
+      renotify: true,
+      data: data.data || {},
+      actions: [
+        { action: 'answer', title: 'Aqbal' },
+        { action: 'decline', title: 'Diidi' },
+      ],
+      vibrate: [200, 100, 200, 100, 200, 100, 200],
+    };
+  }
 
   event.waitUntil(self.registration.showNotification(title, options));
 });
 
-// Handle notification click — focus or open the app
+// ============================================================
+// NOTIFICATION CLICK — focus or open the app
+// ============================================================
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
 
   const action = event.action;
-  const callData = event.notification.data || {};
+  const notifData = event.notification.data || {};
 
-  const targetUrl = callData.url || '/';
+  if (action === 'reply') {
+    // Reply action is handled by notificationreply event (below)
+    return;
+  }
+
+  const targetUrl = notifData.url || '/';
 
   event.waitUntil(
     (async () => {
@@ -58,13 +91,12 @@ self.addEventListener('notificationclick', (event) => {
         includeUncontrolled: true,
       });
 
-      // Focus existing window if found
       for (const client of allClients) {
         if (client.url.includes(self.location.origin)) {
           client.postMessage({
-            type: 'call_notification_action',
+            type: 'notification_action',
             action,
-            callData,
+            data: notifData,
           });
           try {
             await client.focus();
@@ -75,7 +107,6 @@ self.addEventListener('notificationclick', (event) => {
         }
       }
 
-      // Open new window
       if (self.clients.openWindow) {
         await self.clients.openWindow(targetUrl);
       }
@@ -83,12 +114,76 @@ self.addEventListener('notificationclick', (event) => {
   );
 });
 
-// Handle push subscription change (browser may expire/rotate keys)
+// ============================================================
+// NOTIFICATION REPLY — inline reply from notification
+// ============================================================
+self.addEventListener('notificationreply', (event) => {
+  const reply = event.reply;
+  const notifData = event.notification.data || {};
+
+  if (!reply || !reply.trim()) return;
+  if (notifData.type !== 'chat_message') return;
+
+  event.waitUntil(
+    (async () => {
+      const allClients = await self.clients.matchAll({
+        type: 'window',
+        includeUncontrolled: true,
+      });
+
+      // Send the reply to the app for processing
+      for (const client of allClients) {
+        if (client.url.includes(self.location.origin)) {
+          client.postMessage({
+            type: 'notification_reply',
+            reply: reply.trim(),
+            conversation_id: notifData.conversation_id,
+            sender_id: notifData.sender_id,
+          });
+          try {
+            await client.focus();
+          } catch {
+            // ignore
+          }
+          return;
+        }
+      }
+
+      // App is not open — try to open it and pass the reply
+      if (self.clients.openWindow) {
+        const client = await self.clients.openWindow(notifData.url || '/chat');
+        if (client) {
+          // Wait a moment for the app to load, then send the reply
+          setTimeout(() => {
+            client.postMessage({
+              type: 'notification_reply',
+              reply: reply.trim(),
+              conversation_id: notifData.conversation_id,
+              sender_id: notifData.sender_id,
+            });
+          }, 3000);
+        }
+      }
+    })(),
+  );
+});
+
+// ============================================================
+// MESSAGE — handle messages from the app
+// ============================================================
+self.addEventListener('message', (event) => {
+  if (event.data && event.data.type === 'SKIP_WAITING') {
+    self.skipWaiting();
+  }
+});
+
+// ============================================================
+// PUSH SUBSCRIPTION CHANGE
+// ============================================================
 self.addEventListener('pushsubscriptionchange', (event) => {
   event.waitUntil(
     (async () => {
       if (!event.newSubscription) return;
-      // Notify the app about the new subscription so it can re-register
       const allClients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
       for (const client of allClients) {
         client.postMessage({

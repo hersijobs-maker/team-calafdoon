@@ -22,6 +22,9 @@ import { ConnectionsPage } from '@/pages/ConnectionsPage';
 import { SocialPage } from '@/pages/SocialPage';
 import { ContactUsButton, ContactUsPage } from '@/components/ContactUsButton';
 import { MobileApp } from '@/mobile/MobileApp';
+import { setupNotificationHandler, getPendingReply, clearPendingReply } from '@/lib/notification-manager';
+import { subscribeToPush, registerServiceWorker } from '@/lib/notifications';
+import { supabase } from '@/lib/supabase';
 
 const MOBILE_PATHS = ['/m', '/pending-approval', '/contact'];
 
@@ -43,6 +46,38 @@ function NativeRedirect() {
   return null;
 }
 
+function NotificationSetup() {
+  const navigate = useNavigate();
+  useEffect(() => {
+    registerServiceWorker();
+    setupNotificationHandler(
+      (url) => navigate(url),
+      () => {},
+    );
+
+    // Subscribe to push notifications after login
+    const subscribe = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        subscribeToPush().catch(() => {});
+      }
+    };
+    subscribe();
+
+    // Check for pending reply (from notification when app was closed)
+    const pending = getPendingReply();
+    if (pending) {
+      clearPendingReply();
+      import('@/lib/notification-manager').then(({ sendReplyFromNotification }) => {
+        sendReplyFromNotification(pending.conversation_id, pending.reply).then(() => {
+          navigate(`/chat/${pending.conversation_id}`);
+        });
+      });
+    }
+  }, [navigate]);
+  return null;
+}
+
 function App() {
   return (
     <AuthProvider>
@@ -51,6 +86,7 @@ function App() {
       <ToastProvider>
         <BrowserRouter>
           <NativeRedirect />
+          <NotificationSetup />
           <Routes>
             <Route path="/" element={<LandingPage />} />
             <Route path="/register" element={<RegisterPage />} />
