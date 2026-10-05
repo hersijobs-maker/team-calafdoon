@@ -1,0 +1,29 @@
+{
+	"appId": "com.teamcalafdoon.app",
+	"appName": "Team Calafdoon",
+	"webDir": "dist",
+	"bundledWebRuntime": false,
+	"server": {
+		"androidScheme": "https"
+	},
+	"plugins": {
+		"SplashScreen": {
+			"launchShowDuration": 2000,
+			"backgroundColor": "#059669",
+			"showSpinner": false,
+			"androidScaleType": "CENTER_CROP",
+			"iosSpinnerStyle": "small"
+		},
+		"StatusBar": {
+			"style": "LIGHT",
+			"backgroundColor": "#059669",
+			"overlaysWebView": false
+		}
+	},
+	"android": {
+		"allowMixedContent": false
+	},
+	"ios": {
+		"contentInset": "always"
+	}
+}

@@ -1,0 +1,81 @@
+name: Build Release APK
+
+on:
+  workflow_dispatch:
+    inputs:
+      keystore_base64:
+        description: 'Base64-encoded .keystore file (optional - generates debug-signed if empty)'
+        required: false
+        default: ''
+      key_alias:
+        description: 'Key alias'
+        required: false
+        default: 'upload'
+      key_password:
+        description: 'Key password'
+        required: false
+        default: ''
+      store_password:
+        description: 'Store password'
+        required: false
+        default: ''
+
+jobs:
+  build-release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build web app
+        run: npm run build
+
+      - name: Sync to Android
+        run: npx cap sync android
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Decode keystore (if provided)
+        if: ${{ github.event.inputs.keystore_base64 != '' }}
+        run: |
+          echo "${{ github.event.inputs.keystore_base64 }}" | base64 -d > android/app/upload.keystore
+
+      - name: Build unsigned release APK
+        working-directory: android
+        run: ./gradlew assembleRelease --no-daemon
+
+      - name: Sign APK (if keystore provided)
+        if: ${{ github.event.inputs.keystore_base64 != '' }}
+        uses: r0adkll/sign-android-release@v1
+        with:
+          releaseDirectory: android/app/build/outputs/apk/release
+          signingKeyBase64: ${{ github.event.inputs.keystore_base64 }}
+          alias: ${{ github.event.inputs.key_alias }}
+          keyStorePassword: ${{ github.event.inputs.store_password }}
+          keyPassword: ${{ github.event.inputs.key_password }}
+
+      - name: Upload release APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: team-calafdoon-release-apk
+          path: |
+            android/app/build/outputs/apk/release/app-release-unsigned.apk
+            android/app/build/outputs/apk/release/app-release-signed.apk
+          retention-days: 90

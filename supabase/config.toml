@@ -1,0 +1,7 @@
+[functions.confirm-registration-payment]
+verify_jwt = true
+entrypoint = "./functions/confirm-registration-payment/index.ts"
+
+[functions.send-call-push]
+verify_jwt = true
+entrypoint = "./functions/send-call-push/index.ts"
