@@ -59,7 +59,7 @@ jobs:
 
       - name: Build unsigned release APK
         working-directory: android
-        run: ./gradlew assembleRelease --no-daemon
+        run: chmod +x ./gradlew && ./gradlew assembleRelease --no-daemon
 
       - name: Sign APK (if keystore provided)
         if: ${{ github.event.inputs.keystore_base64 != '' }}
