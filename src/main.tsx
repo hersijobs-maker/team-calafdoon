@@ -10,16 +10,15 @@ createRoot(document.getElementById('root')!).render(
   </StrictMode>
 );
 
-// Register service worker for push notifications (non-blocking)
+// Register service worker for push notifications (non-blocking, web only)
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     registerServiceWorker().then((reg) => {
       if (!reg) return;
-      // Attempt to subscribe to push if permission already granted
       if (Notification.permission === 'granted') {
         subscribeToPush().catch(() => {});
       }
-    });
+    }).catch(() => {});
   });
 }
 

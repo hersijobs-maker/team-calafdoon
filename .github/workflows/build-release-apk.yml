@@ -38,6 +38,9 @@ jobs:
         run: npm ci
 
       - name: Build web app
+        env:
+          VITE_SUPABASE_URL: https://tmcqnxjarbmofpdqqite.supabase.co
+          VITE_SUPABASE_ANON_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRtY3FueGphcmJtb2ZwZHFxaXRlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTA3NDc2ODUsImV4cCI6MjEwNjMyMzY4NX0.7G5iAuBx3L1Gt9JZRf3_oJ4v6iMy_ZGZl31T2u4jFBo
         run: npm run build
 
       - name: Sync to Android
