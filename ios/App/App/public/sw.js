@@ -72,16 +72,54 @@ self.addEventListener('push', (event) => {
 // NOTIFICATION CLICK — focus or open the app
 // ============================================================
 self.addEventListener('notificationclick', (event) => {
-  event.notification.close();
-
   const action = event.action;
   const notifData = event.notification.data || {};
 
+  // Handle inline reply action (Android fires notificationclick with action='reply')
   if (action === 'reply') {
-    // Reply action is handled by notificationreply event (below)
+    const reply = event.reply || '';
+    if (reply.trim() && notifData.type === 'chat_message') {
+      event.waitUntil(
+        (async () => {
+          const allClients = await self.clients.matchAll({
+            type: 'window',
+            includeUncontrolled: true,
+          });
+
+          for (const client of allClients) {
+            if (client.url.includes(self.location.origin)) {
+              client.postMessage({
+                type: 'notification_reply',
+                reply: reply.trim(),
+                conversation_id: notifData.conversation_id,
+                sender_id: notifData.sender_id,
+              });
+              try { await client.focus(); } catch {}
+              return;
+            }
+          }
+
+          if (self.clients.openWindow) {
+            const client = await self.clients.openWindow(notifData.url || '/chat');
+            if (client) {
+              setTimeout(() => {
+                client.postMessage({
+                  type: 'notification_reply',
+                  reply: reply.trim(),
+                  conversation_id: notifData.conversation_id,
+                  sender_id: notifData.sender_id,
+                });
+              }, 3000);
+            }
+          }
+        })(),
+      );
+    }
+    event.notification.close();
     return;
   }
 
+  event.notification.close();
   const targetUrl = notifData.url || '/';
 
   event.waitUntil(
@@ -98,11 +136,7 @@ self.addEventListener('notificationclick', (event) => {
             action,
             data: notifData,
           });
-          try {
-            await client.focus();
-          } catch {
-            // ignore
-          }
+          try { await client.focus(); } catch {}
           return;
         }
       }
@@ -115,7 +149,8 @@ self.addEventListener('notificationclick', (event) => {
 });
 
 // ============================================================
-// NOTIFICATION REPLY — inline reply from notification
+// NOTIFICATION REPLY — fallback for browsers that fire this event
+// (Android Chrome fires notificationclick with action='reply' instead)
 // ============================================================
 self.addEventListener('notificationreply', (event) => {
   const reply = event.reply;
@@ -131,7 +166,6 @@ self.addEventListener('notificationreply', (event) => {
         includeUncontrolled: true,
       });
 
-      // Send the reply to the app for processing
       for (const client of allClients) {
         if (client.url.includes(self.location.origin)) {
           client.postMessage({
@@ -140,20 +174,14 @@ self.addEventListener('notificationreply', (event) => {
             conversation_id: notifData.conversation_id,
             sender_id: notifData.sender_id,
           });
-          try {
-            await client.focus();
-          } catch {
-            // ignore
-          }
+          try { await client.focus(); } catch {}
           return;
         }
       }
 
-      // App is not open — try to open it and pass the reply
       if (self.clients.openWindow) {
         const client = await self.clients.openWindow(notifData.url || '/chat');
         if (client) {
-          // Wait a moment for the app to load, then send the reply
           setTimeout(() => {
             client.postMessage({
               type: 'notification_reply',

@@ -74,6 +74,12 @@ export function ChatPage() {
   const [voiceActive, setVoiceActive] = useState(false);
   const [canSend, setCanSend] = useState(false);
   const [sendPermissionLoading, setSendPermissionLoading] = useState(true);
+  const [inAppNotif, setInAppNotif] = useState<{
+    conversationId: string;
+    senderName: string;
+    content: string;
+    avatar_url: string | null;
+  } | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -309,6 +315,77 @@ export function ChatPage() {
     };
   }, [profile?.id, loadConversations]);
 
+  // Global realtime listener for ALL chat_messages changes — updates chat list
+  // and shows in-app notification banner when a message arrives in another conversation
+  useEffect(() => {
+    if (!profile?.id) return;
+
+    const globalChannel = supabase
+      .channel('global_chat_messages')
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'chat_messages',
+        },
+        (payload) => {
+          const newMsg = payload.new as ChatMessage;
+          // Skip own messages
+          if (newMsg.sender_id === profile.id) return;
+          // Check if this message belongs to a conversation the user is part of
+          const conv = conversations.find((c) => c.id === newMsg.conversation_id);
+          if (!conv) {
+            // Not in our list yet — reload conversations to pick it up
+            loadConversations();
+            return;
+          }
+          // If the message is NOT in the currently open conversation, update the list
+          // and show an in-app notification banner
+          if (selectedConv !== newMsg.conversation_id) {
+            // Update the conversation list immediately
+            setConversations((prev) => {
+              const updated = prev.map((c) => {
+                if (c.id === newMsg.conversation_id) {
+                  return {
+                    ...c,
+                    latest_message: {
+                      content: newMsg.content,
+                      created_at: newMsg.created_at,
+                      sender_id: newMsg.sender_id,
+                    },
+                    unread_count: (c.unread_count || 0) + 1,
+                  };
+                }
+                return c;
+              });
+              // Move the conversation with the new message to the top
+              updated.sort((a, b) => {
+                const aTime = a.latest_message?.created_at || a.created_at;
+                const bTime = b.latest_message?.created_at || b.created_at;
+                return new Date(bTime).getTime() - new Date(aTime).getTime();
+              });
+              return updated;
+            });
+            // Show in-app notification banner
+            setInAppNotif({
+              conversationId: newMsg.conversation_id,
+              senderName: conv.other_user.full_name,
+              content: newMsg.message_type === 'voice' ? 'Fariin cod ah' : newMsg.content,
+              avatar_url: conv.other_user.avatar_url,
+            });
+            // Auto-dismiss after 5 seconds
+            setTimeout(() => setInAppNotif(null), 5000);
+          }
+        },
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(globalChannel);
+    };
+  }, [profile?.id, conversations, selectedConv, loadConversations]);
+
   // Track the currently open conversation for notification suppression
   useEffect(() => {
     if (selectedConv) {
@@ -323,9 +400,7 @@ export function ChatPage() {
     if (!selectedConv) return;
 
     const channel = supabase
-      .channel(`chat_messages_${selectedConv}`, {
-        config: { private: true },
-      })
+      .channel(`chat_messages_${selectedConv}`)
       .on(
         'postgres_changes',
         {
@@ -360,12 +435,17 @@ export function ChatPage() {
           );
         },
       )
-      .subscribe();
+      .subscribe((status) => {
+        if (status === 'SUBSCRIBED') {
+          // Channel is ready — reload messages to catch any missed during reconnect
+          loadMessages(selectedConv);
+        }
+      });
 
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [selectedConv, markAsRead, profile?.id]);
+  }, [selectedConv, markAsRead, profile?.id, loadMessages]);
 
   // Scroll to bottom when messages change
   useEffect(() => {
@@ -397,6 +477,7 @@ export function ChatPage() {
         conversation_id: selectedConv,
         sender_id: profile.id,
         content,
+        message_type: 'text',
       })
       .select('id, conversation_id, sender_id, content, read_at, created_at, message_type, call_status, call_duration_seconds, call_history_id, audio_url, audio_duration_seconds')
       .single();
@@ -478,6 +559,36 @@ export function ChatPage() {
   return (
     <div className="min-h-screen bg-slate-50">
       <Navbar />
+      {inAppNotif && (
+        <div
+          onClick={() => {
+            const conv = conversations.find((c) => c.id === inAppNotif.conversationId);
+            if (conv) {
+              selectConversation(conv.id, conv.other_user);
+            }
+            setInAppNotif(null);
+          }}
+          className="fixed top-16 left-1/2 -translate-x-1/2 z-50 bg-white shadow-lg rounded-xl border border-slate-200 px-4 py-3 flex items-center gap-3 cursor-pointer hover:bg-slate-50 transition-colors min-w-[280px] max-w-[90vw]"
+        >
+          {inAppNotif.avatar_url ? (
+            <img src={inAppNotif.avatar_url} alt="" className="w-10 h-10 rounded-full object-cover flex-shrink-0" />
+          ) : (
+            <div className="w-10 h-10 rounded-full bg-gradient-to-br from-emerald-100 to-teal-200 flex items-center justify-center text-sm font-bold text-emerald-700 flex-shrink-0">
+              {inAppNotif.senderName.charAt(0).toUpperCase()}
+            </div>
+          )}
+          <div className="flex-1 min-w-0">
+            <p className="font-semibold text-slate-900 text-sm truncate">{inAppNotif.senderName}</p>
+            <p className="text-xs text-slate-500 truncate">{inAppNotif.content}</p>
+          </div>
+          <button
+            onClick={(e) => { e.stopPropagation(); setInAppNotif(null); }}
+            className="p-1 text-slate-400 hover:text-slate-600 flex-shrink-0"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
       <div className="max-w-6xl mx-auto px-0 sm:px-4 lg:px-8 py-0 sm:py-8">
         <div className="bg-white sm:rounded-2xl shadow-sm border border-slate-200 overflow-hidden h-[calc(100vh-4rem)] sm:h-[calc(100vh-8rem)] flex">
           {/* Conversation list */}

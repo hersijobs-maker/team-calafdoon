@@ -51,6 +51,18 @@ export function MobileMessages({ chatTarget, onChatTargetConsumed }: MobileMessa
 
   useEffect(() => { loadConversations(); }, [loadConversations]);
 
+  // Global realtime listener — updates conversation list when messages arrive in other conversations
+  useEffect(() => {
+    if (!profile?.id) return;
+    const globalChan = supabase
+      .channel('mobile-global-messages')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'chat_messages' }, () => {
+        loadConversations();
+      })
+      .subscribe();
+    return () => { supabase.removeChannel(globalChan); };
+  }, [profile?.id, loadConversations]);
+
   useEffect(() => {
     if (!profile?.id) return;
     supabase.rpc('can_send_messages').then(({ data }) => setCanSend((data as boolean) || false));
@@ -119,9 +131,7 @@ export function MobileMessages({ chatTarget, onChatTargetConsumed }: MobileMessa
     if (!selectedConv) return;
     loadMessages(selectedConv);
     const channel = supabase
-      .channel(`mobile-conv-${selectedConv}`, {
-        config: { private: true },
-      })
+      .channel(`mobile-conv-${selectedConv}`)
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'chat_messages', filter: `conversation_id=eq.${selectedConv}` }, (payload) => {
         const newMsg = payload.new as ChatMessage;
         setMessages((prev) => prev.some((m) => m.id === newMsg.id) ? prev : [...prev, newMsg]);
@@ -134,7 +144,11 @@ export function MobileMessages({ chatTarget, onChatTargetConsumed }: MobileMessa
         const updatedMsg = payload.new as ChatMessage;
         setMessages((prev) => prev.map((m) => (m.id === updatedMsg.id ? updatedMsg : m)));
       })
-      .subscribe();
+      .subscribe((status) => {
+        if (status === 'SUBSCRIBED') {
+          loadMessages(selectedConv);
+        }
+      });
     return () => { supabase.removeChannel(channel); };
   }, [selectedConv, loadMessages, profile?.id]);
 
