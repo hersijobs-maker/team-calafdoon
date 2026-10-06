@@ -1,8 +1,9 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth-context';
 import { useLanguage } from '@/lib/language-context';
+import { setupNativeNotifications, showChatNotification, setActiveConversation, getActiveConversation } from '@/lib/native-notifications';
 import {
   Home as HomeIcon, Search, MessageCircle, Bell, User,
   Loader2, Heart, ArrowLeft, MapPin, Phone, Calendar, UserCheck,
@@ -44,12 +45,75 @@ export function MobileApp() {
     setUnreadCount(count || 0);
   }, [profile?.id]);
 
+  // Debounced reload so bursts of realtime events don't stampede the DB.
+  const reloadTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const debouncedReload = useCallback(() => {
+    if (reloadTimer.current) clearTimeout(reloadTimer.current);
+    reloadTimer.current = setTimeout(() => loadUnreadCount(), 150);
+  }, [loadUnreadCount]);
+
   useEffect(() => {
     if (!profile?.id) return;
+
+    const openConversationFromNotification = (conversationId: string) => {
+      setActiveTab('messages');
+      // Reuse the chatTarget flow: find the other user so the conversation opens correctly
+      (async () => {
+        const { data: conv } = await supabase
+          .from('chat_conversations')
+          .select('id, user1_id, user2_id')
+          .eq('id', conversationId)
+          .maybeSingle();
+        if (conv) {
+          const otherId = conv.user1_id === profile.id ? conv.user2_id : conv.user1_id;
+          const { data: other } = await supabase
+            .from('profiles')
+            .select('full_name, avatar_url')
+            .eq('id', otherId)
+            .maybeSingle();
+          setChatTarget({
+            userId: otherId,
+            fullName: other?.full_name || 'Qof',
+            avatarUrl: other?.avatar_url ?? null,
+          });
+        }
+      })();
+    };
+
+    // Native notification setup (permissions, channel, tap-to-open handler)
+    setupNativeNotifications(openConversationFromNotification);
+
     const channel = supabase
       .channel('mobile-unread')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'chat_messages' }, () => {
-        loadUnreadCount();
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'chat_messages' }, (payload) => {
+        const msg = payload.new as { id: string; conversation_id: string; sender_id: string; content: string; message_type?: string };
+        // Only react to messages from other people, not our own sends
+        if (!msg || msg.sender_id === profile.id) return;
+        // Never count or notify for the conversation the user is currently viewing
+        if (getActiveConversation() === msg.conversation_id) {
+          // The open chat handles its own message list; just keep badge in sync
+          debouncedReload();
+          return;
+        }
+        debouncedReload();
+        // Show a native notification when the app is backgrounded
+        const senderNamePromise = supabase
+          .from('profiles')
+          .select('full_name')
+          .eq('id', msg.sender_id)
+          .maybeSingle();
+        senderNamePromise.then(({ data: sender }) => {
+          showChatNotification({
+            conversationId: msg.conversation_id,
+            messageId: msg.id,
+            senderName: sender?.full_name || 'Qof',
+            content: msg.message_type === 'voice' ? 'Fariin cod ah' : (msg.content || 'Fariin cusub'),
+          });
+        });
+      })
+      // read_at updates change the unread count — resync on UPDATE too
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'chat_messages' }, () => {
+        debouncedReload();
       })
       .subscribe();
     loadUnreadCount();
@@ -60,8 +124,9 @@ export function MobileApp() {
     return () => {
       supabase.removeChannel(channel);
       window.removeEventListener('chat-messages-read', onMessagesRead);
+      if (reloadTimer.current) clearTimeout(reloadTimer.current);
     };
-  }, [profile?.id, loadUnreadCount]);
+  }, [profile?.id, loadUnreadCount, debouncedReload]);
 
   const openChatWith = useCallback((target: ChatTarget) => {
     setChatTarget(target);

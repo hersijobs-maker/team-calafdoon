@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import type { ChatConversation, ChatMessage } from '@/lib/types';
 import type { ChatTarget } from '@/mobile/MobileApp';
+import { setActiveConversation } from '@/lib/native-notifications';
 
 const ADMIN_PAYMENT_NUMBER = '616246852';
 
@@ -123,11 +124,13 @@ export function MobileMessages({ chatTarget, onChatTargetConsumed }: MobileMessa
   }, [profile?.id]);
 
   useEffect(() => {
+    setActiveConversation(selectedConv);
     if (selectedConv) {
       window.dispatchEvent(new CustomEvent('chat-conv-opened', { detail: { conversationId: selectedConv } }));
     } else {
       window.dispatchEvent(new CustomEvent('chat-conv-closed'));
     }
+    return () => setActiveConversation(null);
   }, [selectedConv]);
 
   useEffect(() => {
