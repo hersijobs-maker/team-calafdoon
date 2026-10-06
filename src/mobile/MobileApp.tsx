@@ -5,8 +5,9 @@ import { useAuth } from '@/lib/auth-context';
 import { useLanguage } from '@/lib/language-context';
 import {
   Home as HomeIcon, Search, MessageCircle, Bell, User,
-  Loader2, Heart, Mail,
+  Loader2, Heart, ArrowLeft, MapPin, Phone, Calendar, UserCheck,
 } from 'lucide-react';
+import type { DirectoryMember } from '@/lib/types';
 import { MobileHome } from '@/mobile/MobileHome';
 import { MobileSearch } from '@/mobile/MobileSearch';
 import { MobileMessages } from '@/mobile/MobileMessages';
@@ -26,10 +27,12 @@ export interface ChatTarget {
 export function MobileApp() {
   const { session, profile, loading } = useAuth();
   const { t } = useLanguage();
+  const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<Tab>('home');
   const [unreadCount, setUnreadCount] = useState(0);
   const [chatTarget, setChatTarget] = useState<ChatTarget | null>(null);
   const [showContact, setShowContact] = useState(false);
+  const [viewingMemberId, setViewingMemberId] = useState<string | null>(null);
 
   const loadUnreadCount = useCallback(async () => {
     if (!profile?.id) return;
@@ -50,7 +53,14 @@ export function MobileApp() {
       })
       .subscribe();
     loadUnreadCount();
-    return () => { supabase.removeChannel(channel); };
+
+    const onMessagesRead = () => loadUnreadCount();
+    window.addEventListener('chat-messages-read', onMessagesRead);
+
+    return () => {
+      supabase.removeChannel(channel);
+      window.removeEventListener('chat-messages-read', onMessagesRead);
+    };
   }, [profile?.id, loadUnreadCount]);
 
   const openChatWith = useCallback((target: ChatTarget) => {
@@ -95,7 +105,7 @@ export function MobileApp() {
   return (
     <div className="flex flex-col h-screen bg-slate-50 max-w-md mx-auto overflow-hidden">
       <div className="flex-1 overflow-y-auto overscroll-contain -webkit-overflow-scrolling-touch">
-        {activeTab === 'home' && <MobileHome onNavigate={setActiveTab} onOpenMember={(id) => { /* handled in search */ }} onOpenChat={openChatWith} />}
+        {activeTab === 'home' && <MobileHome onNavigate={setActiveTab} onOpenMember={(id) => setViewingMemberId(id)} onOpenChat={openChatWith} />}
         {activeTab === 'search' && <MobileSearch onMessage={openChatWith} />}
         {activeTab === 'messages' && <MobileMessages chatTarget={chatTarget} onChatTargetConsumed={() => setChatTarget(null)} />}
         {activeTab === 'notifications' && <MobileNotifications />}
@@ -132,6 +142,14 @@ export function MobileApp() {
           );
         })}
       </nav>
+
+      {viewingMemberId && (
+        <MemberProfileOverlay
+          memberId={viewingMemberId}
+          onClose={() => setViewingMemberId(null)}
+          onMessage={(target) => { setViewingMemberId(null); openChatWith(target); }}
+        />
+      )}
     </div>
   );
 }
@@ -180,6 +198,139 @@ function MobilePending() {
       >
         Ka Bax
       </button>
+    </div>
+  );
+}
+
+function MemberProfileOverlay({ memberId, onClose, onMessage }: {
+  memberId: string;
+  onClose: () => void;
+  onMessage: (target: ChatTarget) => void;
+}) {
+  const [member, setMember] = useState<DirectoryMember | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    (async () => {
+      const { data } = await supabase
+        .from('profiles')
+        .select('id, full_name, email, phone, avatar_url, bio, location, profession, created_at, age, gender, country, city, marital_status, looking_for')
+        .eq('id', memberId)
+        .maybeSingle();
+      setMember(data as DirectoryMember | null);
+      setLoading(false);
+    })();
+  }, [memberId]);
+
+  if (loading) {
+    return (
+      <div className="fixed inset-0 z-50 bg-white flex items-center justify-center">
+        <Loader2 className="w-8 h-8 animate-spin text-emerald-600" />
+      </div>
+    );
+  }
+
+  if (!member) {
+    return (
+      <div className="fixed inset-0 z-50 bg-white flex flex-col items-center justify-center">
+        <p className="text-sm text-slate-500 mb-4">Xuban lama helin.</p>
+        <button onClick={onClose} className="bg-emerald-600 text-white px-6 py-2.5 rounded-xl text-sm font-semibold">Dib u noqo</button>
+      </div>
+    );
+  }
+
+  const MARITAL_LABELS: Record<string, string> = {
+    single: 'Aan guursan', divorced: 'Guur laga xigay', widowed: 'Luumay', married: 'Guursan',
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 bg-slate-50 overflow-y-auto">
+      <div className="relative">
+        {member.avatar_url ? (
+          <img src={member.avatar_url} alt={member.full_name} className="w-full h-64 object-cover" />
+        ) : (
+          <div className="w-full h-64 bg-gradient-to-br from-emerald-700 to-teal-700 flex items-center justify-center">
+            <span className="text-5xl font-bold text-white">{member.full_name.charAt(0).toUpperCase()}</span>
+          </div>
+        )}
+        <button onClick={onClose} className="absolute top-4 left-4 w-9 h-9 rounded-full bg-black/40 text-white flex items-center justify-center">
+          <ArrowLeft className="w-5 h-5" />
+        </button>
+      </div>
+      <div className="px-4 -mt-8 relative pb-6">
+        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
+          <h2 className="text-xl font-bold text-slate-900">{member.full_name}</h2>
+          <div className="flex flex-wrap gap-2 mt-2">
+            {member.city && <span className="bg-slate-100 text-slate-600 text-xs px-2.5 py-1 rounded-full">{member.city}</span>}
+            {member.country && <span className="bg-slate-100 text-slate-600 text-xs px-2.5 py-1 rounded-full">{member.country}</span>}
+            {member.marital_status && <span className="bg-slate-100 text-slate-600 text-xs px-2.5 py-1 rounded-full">{MARITAL_LABELS[member.marital_status] || member.marital_status}</span>}
+            {member.age && <span className="bg-slate-100 text-slate-600 text-xs px-2.5 py-1 rounded-full">{member.age} sano</span>}
+          </div>
+          {member.bio && (
+            <div className="mt-4">
+              <p className="text-xs font-semibold text-slate-500 uppercase mb-1">Iftiiminta</p>
+              <p className="text-sm text-slate-700 leading-relaxed">{member.bio}</p>
+            </div>
+          )}
+          {member.looking_for && (
+            <div className="mt-4">
+              <p className="text-xs font-semibold text-slate-500 uppercase mb-1">Waxa la raadinayo</p>
+              <p className="text-sm text-slate-700 leading-relaxed">{member.looking_for}</p>
+            </div>
+          )}
+          {member.profession && (
+            <div className="mt-3 flex items-center gap-2 text-sm text-slate-600">
+              <span className="font-semibold text-slate-500">Xirfadeynta:</span> {member.profession}
+            </div>
+          )}
+        </div>
+
+        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5 mt-3 space-y-3">
+          {member.phone && (
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center text-slate-500">
+                <Phone className="w-4 h-4" />
+              </div>
+              <div>
+                <p className="text-xs text-slate-400">Telefoon</p>
+                <p className="text-sm font-medium text-slate-700">{member.phone}</p>
+              </div>
+            </div>
+          )}
+          {member.age && (
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center text-slate-500">
+                <Calendar className="w-4 h-4" />
+              </div>
+              <div>
+                <p className="text-xs text-slate-400">Da'da</p>
+                <p className="text-sm font-medium text-slate-700">{member.age} sano</p>
+              </div>
+            </div>
+          )}
+          {(member.city || member.country) && (
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center text-slate-500">
+                <MapPin className="w-4 h-4" />
+              </div>
+              <div>
+                <p className="text-xs text-slate-400">Goobta</p>
+                <p className="text-sm font-medium text-slate-700">{[member.city, member.country].filter(Boolean).join(', ')}</p>
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="flex gap-3 mt-4">
+          <button
+            onClick={() => onMessage({ userId: member.id, fullName: member.full_name, avatarUrl: member.avatar_url })}
+            className="flex-1 bg-emerald-600 text-white font-semibold py-3 rounded-xl flex items-center justify-center gap-2 active:scale-95 transition-transform"
+          >
+            <MessageCircle className="w-5 h-5" />
+            Fariin
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

@@ -191,6 +191,7 @@ export function ChatPage() {
       .eq('conversation_id', convId)
       .neq('sender_id', profile.id)
       .is('read_at', null);
+    window.dispatchEvent(new CustomEvent('chat-messages-read'));
   }, [profile?.id]);
 
   // Start a new conversation with a member

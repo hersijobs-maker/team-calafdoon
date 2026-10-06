@@ -115,8 +115,11 @@ export function MobileMessages({ chatTarget, onChatTargetConsumed }: MobileMessa
       .eq('conversation_id', convId)
       .order('created_at', { ascending: true });
     setMessages((data as ChatMessage[]) || []);
-    supabase.from('chat_messages').update({ read_at: new Date().toISOString() })
+    const { error: readErr } = await supabase.from('chat_messages').update({ read_at: new Date().toISOString() })
       .eq('conversation_id', convId).neq('sender_id', profile?.id || '').is('read_at', null);
+    if (!readErr) {
+      window.dispatchEvent(new CustomEvent('chat-messages-read'));
+    }
   }, [profile?.id]);
 
   useEffect(() => {
@@ -137,7 +140,8 @@ export function MobileMessages({ chatTarget, onChatTargetConsumed }: MobileMessa
         setMessages((prev) => prev.some((m) => m.id === newMsg.id) ? prev : [...prev, newMsg]);
         if (newMsg.sender_id !== profile?.id) {
           supabase.from('chat_messages').update({ read_at: new Date().toISOString() })
-            .eq('conversation_id', selectedConv).neq('sender_id', profile?.id || '').is('read_at', null);
+            .eq('conversation_id', selectedConv).neq('sender_id', profile?.id || '').is('read_at', null)
+            .then(() => window.dispatchEvent(new CustomEvent('chat-messages-read')));
         }
       })
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'chat_messages', filter: `conversation_id=eq.${selectedConv}` }, (payload) => {
