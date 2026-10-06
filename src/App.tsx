@@ -48,8 +48,15 @@ function NativeRedirect() {
 
 function NotificationSetup() {
   const navigate = useNavigate();
+  const isNative = typeof window !== 'undefined'
+    && document.documentElement.getAttribute('data-native') === 'true';
+
   useEffect(() => {
-    registerServiceWorker();
+    // Web push via service worker is website-only; the APK uses
+    // Capacitor local notifications (a stale SW cache breaks the APK).
+    if (!isNative) {
+      registerServiceWorker();
+    }
     setupNotificationHandler(
       (url) => navigate(url),
       () => {},
