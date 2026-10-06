@@ -22,10 +22,10 @@ if ('serviceWorker' in navigator) {
   });
 }
 
-// Detect Capacitor native runtime and mark it for the app
-if (typeof window !== 'undefined') {
-  const nativeBridge = (window as unknown as { Capacitor?: { isNative?: boolean; getPlatform?: () => string } }).Capacitor;
-  if (nativeBridge?.isNative || nativeBridge?.getPlatform?.() === 'android' || nativeBridge?.getPlatform?.() === 'ios') {
-    document.documentElement.setAttribute('data-native', 'true');
-  }
+// Detect Capacitor native runtime and mark it for the app.
+// Must run before React mounts so routing picks the mobile UI on first paint.
+import { Capacitor } from '@capacitor/core';
+
+if (typeof window !== 'undefined' && Capacitor.isNativePlatform()) {
+  document.documentElement.setAttribute('data-native', 'true');
 }

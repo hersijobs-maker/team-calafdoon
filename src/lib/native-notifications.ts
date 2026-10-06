@@ -81,9 +81,11 @@ export async function setupNativeNotifications(
   );
 }
 
-// Show a native notification for a new chat message (only when backgrounded).
-// A deterministic id from the message UUID means re-scheduling the same
-// message replaces any existing notification instead of stacking duplicates.
+// Show a native notification for a new chat message. A deterministic id
+// from the message UUID means re-scheduling the same message replaces any
+// existing notification instead of stacking duplicates.
+// The currently-viewed conversation is always suppressed; other
+// conversations notify even in the foreground (heads-up style).
 export async function showChatNotification(opts: {
   conversationId: string;
   messageId: string;
@@ -92,9 +94,18 @@ export async function showChatNotification(opts: {
 }): Promise<void> {
   if (!Capacitor.isNativePlatform()) return;
   if (activeConversationId === opts.conversationId) return;
-  if (appInForeground) return;
   if (shownNotificationMsgIds.has(opts.messageId)) return;
   shownNotificationMsgIds.add(opts.messageId);
+
+  const LocalNotifications = (await import('@capacitor/local-notifications')).LocalNotifications;
+
+  // Check notifications are actually enabled before sending
+  try {
+    const { display } = await LocalNotifications.checkPermissions();
+    if (display !== 'granted') return;
+  } catch {
+    return;
+  }
 
   try {
     await LocalNotifications.schedule({
